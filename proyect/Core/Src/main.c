@@ -50,15 +50,54 @@ UART_HandleTypeDef huart2;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
+
+
+uint32_t left_toggles= 0;
+
 /* USER CODE BEGIN PFP */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  /* Prevent unused argument(s) compilation warning */
+  UNUSED(GPIO_Pin);
+
+  if (GPIO_Pin == S1_Pin){
+	  HAL_UART_Transmit(&huart2,"S1\r\n",4,10);
+	  left_toggles= 6;
+
+  }
+
+
+  /* NOTE: This function should not be modified, when the callback is needed,
+           the HAL_GPIO_EXTI_Callback could be implemented in the user file
+   */
+}
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+void heartbeat (void){
+	static uint32_t heartbeat_tick = 0;
+	if(heartbeat_tick  < HAL_GetTick() ){
+		heartbeat_tick = HAL_GetTick() + 500;
+		HAL_GPIO_TogglePin(D1_GPIO_Port, D1_Pin);
+	}
+}
 /* USER CODE END 0 */
 
+void turn_signal_left (void){
+	static uint32_t tunr_togle_tick = 0;
+	if(tunr_togle_tick  < HAL_GetTick() ){
+		if(left_toggles> 0){
+			tunr_togle_tick = HAL_GetTick() + 500;
+			HAL_GPIO_TogglePin(D3_GPIO_Port, D3_Pin);
+			left_toggles--;
+		} else{
+			HAL_GPIO_WritePin(D3_GPIO_Port, D3_Pin, 1);
+		}
+
+	}
+}
 /**
   * @brief  The application entry point.
   * @retval int
@@ -96,12 +135,17 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  heartbeat();
+	  turn_signal_left();
+
+
+	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
-}
+
 
 /**
   * @brief System Clock Configuration
