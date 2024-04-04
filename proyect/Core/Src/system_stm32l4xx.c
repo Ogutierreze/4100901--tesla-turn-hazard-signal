@@ -207,6 +207,7 @@ void SystemInit(void)
 #endif
 }
 
+
 /**
   * @brief  Update SystemCoreClock variable according to Clock Register Values.
   *         The SystemCoreClock variable contains the core clock (HCLK), it can
