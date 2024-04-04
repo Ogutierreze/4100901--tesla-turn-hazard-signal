@@ -46,23 +46,29 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   UNUSED(GPIO_Pin);
   uint32_t current_time = HAL_GetTick();
 
+  //se condicionan las acciones a realizar si se realizan las interrupciones en cada boton
+
   if (GPIO_Pin == S1_Pin){
+
+	  // se usa un Debounce_time para evitar le ruido por rebote. es decir despues de un puslo se espera el tiempo de debounce time para poder contar otra pulsasion
+
 	  if (current_time - last_debounce_time_left >= DEBOUNCE_TIME) {
 
+		  // Tiempo de reset de 1 segundo, exeptuando el reset despues de dos pulsasiones.
           if (current_time - last_debounce_time_left > 1000 && counter_left < 2) {
               counter_left = 0;
           }
 
-
+// se inicia el contador de pulsos
 		  counter_left++;
 		  last_debounce_time_left = current_time;
 
 
-
+//se asegura apagar la otra lapara cuando esat se encienda.
 		  if(counter_left>0){
 		 			  right_toggles=0;
 		 		  }
-
+// se condiciona el contador para hacer la accion segun la cantidad de pulsos
 		  if(counter_left==1){
 
         	  HAL_UART_Transmit(&huart2, "S1\r\n", 4, 10);
@@ -70,12 +76,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
           }
           else if(counter_left==2){
         	  HAL_UART_Transmit(&huart2, "S1_toggles\r\n",12, 10);
-        	  left_toggles = 0xEEEEEEE;
+        	  left_toggles = 0xEEEEEEE;  // Contador muy grande, hace que haya un parpadeo practicamente infito.
 
 
 
           }
-          else if (counter_left>=3){
+          else if (counter_left>=3){  // si hay una tercera pulsasion se resetean los contadores (se apaga el led)
         	  HAL_UART_Transmit(&huart2, "S1_off\r\n",8, 10);
         	  counter_left=0;
         	  left_toggles = 0;
@@ -87,7 +93,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
      }
 
-
+  // De la misma forma se hace para el boton S1
   } else if (GPIO_Pin == S2_Pin){
 	  if (current_time - last_debounce_time_right >= DEBOUNCE_TIME) {
 
@@ -133,25 +139,23 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 	          }
 
-	  }else if(GPIO_Pin==S3_Pin){
+	  }else if(GPIO_Pin==S3_Pin){// El Boton S3 es para la señal de parqueo
 
-		  if (current_time - last_debounce_time_right >= DEBOUNCE_TIME) {
+		  if (current_time - last_debounce_time_right >= DEBOUNCE_TIME) {  // Evitar rebote
 
 
 		       counter_hazard++;
 		       last_debounce_time_right = current_time;
 
-				  if(counter_hazard>0){
+				  if(counter_hazard>0){ // si se activan las estacionarias, se apagan las direccionales
 					  left_toggles = 0;
 					  right_toggles = 0;
 				  }
 
 
-		      if(counter_hazard==1){
+		      if(counter_hazard==1){ //se pone una bandera Hazadr_toggles si hay una pulsacion.
 
 		          HAL_UART_Transmit(&huart2, "S3_on\r\n",7, 10);
-		          right_toggles = 10;
-		          left_toggles = 10;
 
 		          hazard_toggles=1;
 
@@ -159,7 +163,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 		          }
 //
-		          else if(counter_hazard>=2){
+		          else if(counter_hazard>=2){ // se pone en cero la bandera y el resto de contadores(se apagan las dos luces)
 
 		        	  HAL_UART_Transmit(&huart2, "S3_off\r\n", 8, 10);
 		              right_toggles = 0;
@@ -191,6 +195,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+//Funcionde parpadeo para comprobar el funcionamiento.
 void heartbeat (void){
 
 	static uint32_t heartbeat_tick = 0;
@@ -201,24 +207,26 @@ void heartbeat (void){
 }
 /* USER CODE END 0 */
 
+//Funcionde control para la direccional izquierda
+
 void turn_signal_left (void){
 	static uint32_t tunr_togle_tick = 0;
 	if(tunr_togle_tick  < HAL_GetTick() ){
 
-		if(left_toggles> 0){
-			tunr_togle_tick = HAL_GetTick() + 300;
-			HAL_GPIO_TogglePin(D3_GPIO_Port, D3_Pin);
-			left_toggles--;
+		if(left_toggles> 0){// si el contador es mayor que cero se ejecuta la accion
+			tunr_togle_tick = HAL_GetTick() + 300;  // tiempo actual tyransucrrido mas 300 ms
+			HAL_GPIO_TogglePin(D3_GPIO_Port, D3_Pin);  // se hace un cambio de estado del pin del LED cada 300ms
+			left_toggles--; // se resta 1 cada por cada ciclo.(este condtador decide cuatas veces se rquiere el parpadeo)
 		} else{
 
-			HAL_GPIO_WritePin(D3_GPIO_Port, D3_Pin, 1);
+			HAL_GPIO_WritePin(D3_GPIO_Port, D3_Pin, 1);  // si no se activa la direccional, que permanezca apagada
 		}
 
 	}
 }
 
 
-
+//Funcionde control para la direccional derecha. (Funciona igual que la anterior)
 void turn_signal_right (void){
 
 	static uint32_t tunr_togle_tick = 0;
@@ -267,11 +275,13 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
+	  //Llamado a funciones
 	  heartbeat();
 	  turn_signal_left();
 	  turn_signal_right();
 
-	  // hazard signal
+	  //control de señal de parqueo
 	  if(counter_hazard==1){
 		  HAL_GPIO_WritePin(D3_GPIO_Port, D3_Pin, 1);
 		  HAL_GPIO_WritePin(D4_GPIO_Port, D4_Pin, 1);
@@ -279,6 +289,8 @@ int main(void)
 		  HAL_GPIO_WritePin(D3_GPIO_Port, D3_Pin, 0);
 		  HAL_GPIO_WritePin(D4_GPIO_Port, D4_Pin, 0);
 		  HAL_Delay(300);
+
+		  //si la bandera counter_hazard esta activa se realiza un parapdeo infinito con el uso del Delay. Esto hace que las luces de parqueo tengan la maxima prioridad.
 
 
 	  }
