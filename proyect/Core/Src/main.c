@@ -18,13 +18,35 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#define DEBOUNCE_TIME 300
 
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
 
+#include "ring_buffer.h"
+
+#include"ssd1306.h"
+#include"ssd1306_fonts.h"
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
 
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
@@ -33,155 +55,44 @@ uint32_t right_toggles = 0,hazard_toggles=0;
 uint32_t last_debounce_time_left = 0;
 uint32_t last_debounce_time_right = 0,last_debounce_time_hazard = 0;
 uint32_t counter_right=0, counter_left=0,counter_hazard=0;
+uint8_t data;
+
+
+#define CAPACITY_USART1 10
+uint8_t mem_usart1[CAPACITY_USART1];
+ring_buffer_t rb_usart1;
+#define CAPACITY_USART2 10
+uint8_t mem_usart2[CAPACITY_USART2];
+ring_buffer_t rb_usart2;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_USART1_UART_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
+	if(huart-> Instance == USART1){
+
+		ring_buffer_write(&rb_usart1,data);
+		HAL_UART_Receive_IT(&huart1,&data,1);
+
+	}
+	if(huart-> Instance == USART2){
+		ring_buffer_write(&rb_usart2,data);
+		HAL_UART_Receive_IT(&huart2,&data,1);
+	}
+
+}
+
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-  /* Prevent unused argument(s) compilation warning */
-  UNUSED(GPIO_Pin);
-  uint32_t current_time = HAL_GetTick();
 
-  //se condicionan las acciones a realizar si se realizan las interrupciones en cada boton
-
-  if (GPIO_Pin == S1_Pin){
-
-	  // se usa un Debounce_time para evitar le ruido por rebote. es decir despues de un puslo se espera el tiempo de debounce time para poder contar otra pulsasion
-
-	  if (current_time - last_debounce_time_left >= DEBOUNCE_TIME) {
-
-		  // Tiempo de reset de 1 segundo, exeptuando el reset despues de dos pulsasiones.
-          if (current_time - last_debounce_time_left > 1000 && counter_left < 2) {
-              counter_left = 0;
-          }
-
-// se inicia el contador de pulsos
-		  counter_left++;
-		  last_debounce_time_left = current_time;
-
-
-//se asegura apagar la otra lapara cuando esat se encienda.
-		  if(counter_left>0){
-		 			  right_toggles=0;
-		 		  }
-// se condiciona el contador para hacer la accion segun la cantidad de pulsos
-		  if(counter_left==1){
-
-        	  HAL_UART_Transmit(&huart2, "S1\r\n", 4, 10);
-        	  left_toggles = 6;
-          }
-          else if(counter_left==2){
-        	  HAL_UART_Transmit(&huart2, "S1_toggles\r\n",12, 10);
-        	  left_toggles = 0xEEEEEEE;  // Contador muy grande, hace que haya un parpadeo practicamente infito.
-
-
-
-          }
-          else if (counter_left>=3){  // si hay una tercera pulsasion se resetean los contadores (se apaga el led)
-        	  HAL_UART_Transmit(&huart2, "S1_off\r\n",8, 10);
-        	  counter_left=0;
-        	  left_toggles = 0;
-
-
-
-          }
-
-
-     }
-
-  // De la misma forma se hace para el boton S1
-  } else if (GPIO_Pin == S2_Pin){
-	  if (current_time - last_debounce_time_right >= DEBOUNCE_TIME) {
-
-
-          if(current_time - last_debounce_time_right > 1000 && counter_right<2){
-        	  counter_right=0;
-          }
-	       counter_right++;
-	       last_debounce_time_right = current_time;
-
-			  if(counter_right>0){
-			 			  left_toggles=0;
-			 		  }
-
-
-
-	      if(counter_right==1){
-
-	          HAL_UART_Transmit(&huart2, "S2\r\n",4, 10);
-	          right_toggles = 6;
-
-
-
-	          }
-
-	          else if(counter_right==2){
-
-	        	  HAL_UART_Transmit(&huart2, "S2_toggles\r\n", 12, 10);
-	              right_toggles = 0xEEEEEEE;
-
-
-
-	          }
-	          else if(counter_right>=3){
-
-	        	  HAL_UART_Transmit(&huart2, "S2_off\r\n", 8, 10);
-	              right_toggles = 0;
-	         	  counter_right = 0;
-
-
-	          }
-
-
-	          }
-
-	  }else if(GPIO_Pin==S3_Pin){// El Boton S3 es para la señal de parqueo
-
-		  if (current_time - last_debounce_time_right >= DEBOUNCE_TIME) {  // Evitar rebote
-
-
-		       counter_hazard++;
-		       last_debounce_time_right = current_time;
-
-				  if(counter_hazard>0){ // si se activan las estacionarias, se apagan las direccionales
-					  left_toggles = 0;
-					  right_toggles = 0;
-				  }
-
-
-		      if(counter_hazard==1){ //se pone una bandera Hazadr_toggles si hay una pulsacion.
-
-		          HAL_UART_Transmit(&huart2, "S3_on\r\n",7, 10);
-
-		          hazard_toggles=1;
-
-
-
-		          }
-//
-		          else if(counter_hazard>=2){ // se pone en cero la bandera y el resto de contadores(se apagan las dos luces)
-
-		        	  HAL_UART_Transmit(&huart2, "S3_off\r\n", 8, 10);
-		              right_toggles = 0;
-		              left_toggles = 0;
-		         	  counter_hazard = 0;
-		         	  hazard_toggles=0;
-
-
-
-		          }
-
-
-		          }
-
-
-
-
-	  }
 
   }
 
@@ -207,57 +118,26 @@ void heartbeat (void){
 }
 /* USER CODE END 0 */
 
-//Funcionde control para la direccional izquierda
-
-void turn_signal_left (void){
-	static uint32_t tunr_togle_tick = 0;
-	if(tunr_togle_tick  < HAL_GetTick() ){
-
-		if(left_toggles> 0){// si el contador es mayor que cero se ejecuta la accion
-			tunr_togle_tick = HAL_GetTick() + 300;  // tiempo actual tyransucrrido mas 300 ms
-			HAL_GPIO_TogglePin(D3_GPIO_Port, D3_Pin);  // se hace un cambio de estado del pin del LED cada 300ms
-			left_toggles--; // se resta 1 cada por cada ciclo.(este condtador decide cuatas veces se rquiere el parpadeo)
-		} else{
-
-			HAL_GPIO_WritePin(D3_GPIO_Port, D3_Pin, 1);  // si no se activa la direccional, que permanezca apagada
-		}
-
-	}
-}
-
-
-//Funcionde control para la direccional derecha. (Funciona igual que la anterior)
-void turn_signal_right (void){
-
-	static uint32_t tunr_togle_tick = 0;
-	if(tunr_togle_tick  < HAL_GetTick() ){
-		if(right_toggles> 0){
-			tunr_togle_tick = HAL_GetTick() + 300;
-			HAL_GPIO_TogglePin(D4_GPIO_Port, D4_Pin);
-			right_toggles--;
-
-		} else{
-			HAL_GPIO_WritePin(D4_GPIO_Port, D4_Pin, 1);
-
-		}
-
-	}
-}
-
-
-
-
-/* USER CODE END 0 */
-
 /**
   * @brief  The application entry point.
   * @retval int
   */
 int main(void)
 {
+  /* USER CODE BEGIN 1 */
 
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
@@ -267,33 +147,82 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_USART1_UART_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  ssd1306_Init();
+    ssd1306_Fill(Black);
+    ssd1306_SetCursor(10,20);
+    ssd1306_WriteString("holaaa",Font_6x8,White);
+    ssd1306_UpdateScreen();
+    ring_buffer_init(&rb_usart1, mem_usart1, CAPACITY_USART1);
+    ring_buffer_init(&rb_usart2, mem_usart2, CAPACITY_USART2);
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  HAL_UART_Receive_IT(&huart1,&data, 1);
+  HAL_UART_Receive_IT(&huart2, &data, 1);
+
   while (1)
   {
 
-	  //Llamado a funciones
-	  heartbeat();
-	  turn_signal_left();
-	  turn_signal_right();
+	  uint8_t byte = 0;
 
-	  //control de señal de parqueo
-	  if(counter_hazard==1){
-		  HAL_GPIO_WritePin(D3_GPIO_Port, D3_Pin, 1);
-		  HAL_GPIO_WritePin(D4_GPIO_Port, D4_Pin, 1);
-		  HAL_Delay(300);
-		  HAL_GPIO_WritePin(D3_GPIO_Port, D3_Pin, 0);
-		  HAL_GPIO_WritePin(D4_GPIO_Port, D4_Pin, 0);
-		  HAL_Delay(300);
 
-		  //si la bandera counter_hazard esta activa se realiza un parapdeo infinito con el uso del Delay. Esto hace que las luces de parqueo tengan la maxima prioridad.
+	//  if(ring_buffer_read(&byte)!=0){
+	//	  HAL_UART_Transmit(&huart2,&byte,1,10);
+	//  }
+	  if(ring_buffer_is_full(&rb_usart2)!=0){
+		  uint8_t id_incorrect=0;
+		  uint8_t my_id[] = "1006554210";
+		  for(uint8_t idx=0; idx<sizeof(my_id);idx++){
+			  if(ring_buffer_read(&rb_usart2,&byte)!=0){
+				  if(byte != my_id[idx]){
+					  id_incorrect = 1;
+
+				  }
+			  }
+		  }
+		  if(id_incorrect==0){
+			  HAL_UART_Transmit(&huart2,(uint8_t *)"Oscar\n\r",7,10);
+			  // Mostrar "Cristian" en la pantalla SSD1306
+			  ssd1306_Fill(Black);  // Limpiar la pantalla
+			  ssd1306_SetCursor(10, 20);
+			  ssd1306_WriteString("Oscar", Font_6x8, White);
+			  ssd1306_UpdateScreen();
+
+		  }else{
+			  HAL_UART_Transmit(&huart2,(uint8_t *)"Error\n\r",7,10);
+
+			  // Mostrar "Error" en la pantalla SSD1306
+			  ssd1306_Fill(Black);  // Limpiar la pantalla
+			  ssd1306_SetCursor(10, 20);
+			  ssd1306_WriteString("Error", Font_6x8, White);
+			  ssd1306_UpdateScreen();
+
+		  }
+		  ring_buffer_reset(&rb_usart2);
 
 
 	  }
+
+
+    /*  if (ring_buffer_read(&byte) != 0) {
+          // Shift the buffer to the left and add the new byte at the end
+          memmove(buffer, buffer + 1, DOC_LENGTH - 1);
+          buffer[DOC_LENGTH - 1] = byte;
+
+          // Check if the received sequence matches the document number
+          if (memcmp(buffer, DOC_NUMBER, DOC_LENGTH) == 0) {
+              HAL_UART_Transmit(&huart2, (uint8_t*)NAME, strlen(NAME), HAL_MAX_DELAY);
+          }
+      }*/
+
+
+
 
 
 
@@ -302,6 +231,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+
   }
   /* USER CODE END 3 */
 
@@ -357,6 +288,89 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x10909CEC;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -407,14 +421,14 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, D1_Pin|D3_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(D1_GPIO_Port, D1_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(D4_GPIO_Port, D4_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(D3_GPIO_Port, D3_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : S1_Pin S2_Pin */
   GPIO_InitStruct.Pin = S1_Pin|S2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
@@ -427,21 +441,11 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : S3_Pin */
   GPIO_InitStruct.Pin = S3_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(S3_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : D4_Pin */
-  GPIO_InitStruct.Pin = D4_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(D4_GPIO_Port, &GPIO_InitStruct);
-
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
-
   HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
